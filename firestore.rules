@@ -1,0 +1,113 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    // --- User Validation ---
+    function isValidUser(data) {
+      return data.full_name is string && data.full_name.size() > 0 && data.full_name.size() <= 100 &&
+             data.email == request.auth.token.email &&
+             data.role in ['applicant', 'admin'] &&
+             data.created_at == request.time;
+    }
+
+    match /users/{userId} {
+      allow get: if isSignedIn() && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin();
+      
+      allow create: if isSignedIn() && isOwner(userId) && isValidUser(incoming()) && 
+                    incoming().role == 'applicant'; // Force role to applicant on self-signup
+      
+      allow update: if isSignedIn() && isOwner(userId) && 
+                    incoming().diff(existing()).affectedKeys().hasOnly(['full_name']) &&
+                    incoming().full_name is string && incoming().full_name.size() <= 100;
+    }
+
+    // --- Application Validation ---
+    function isValidApplication(data) {
+      return data.user_id == request.auth.uid &&
+             data.user_name is string && data.user_name.size() <= 100 &&
+             data.course_applied is string && data.course_applied.size() > 0 && data.course_applied.size() <= 100 &&
+             data.status in ['pending', 'approved', 'rejected'] &&
+             data.created_at == request.time &&
+             data.updated_at == request.time;
+    }
+
+    match /applications/{applicationId} {
+      allow read: if isSignedIn() && (isOwner(existing().user_id) || isAdmin());
+      allow list: if isSignedIn() && (isAdmin() || resource.data.user_id == request.auth.uid);
+
+      allow create: if isSignedIn() && isValidApplication(incoming()) && 
+                    incoming().status == 'pending' &&
+                    isValidId(applicationId);
+
+      allow update: if (
+        isSignedIn() && (
+          // Admin approving/rejecting
+          (isAdmin() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updated_at']) &&
+           incoming().status in ['approved', 'rejected'] && 
+           incoming().updated_at == request.time) ||
+          // User updating details if still pending
+          (isOwner(existing().user_id) && existing().status == 'pending' &&
+           incoming().diff(existing()).affectedKeys().hasOnly(['course_applied', 'updated_at']) &&
+           incoming().course_applied is string && 
+           incoming().updated_at == request.time)
+        )
+      );
+
+      // --- Document Validation ---
+      function isValidDocument(data) {
+        return data.application_id == applicationId &&
+               data.file_url is string && data.file_url.size() <= 1000 &&
+               data.file_type is string && data.file_type.size() <= 50 &&
+               data.uploaded_at == request.time;
+      }
+
+      match /documents/{documentId} {
+        allow read: if isSignedIn() && (isOwner(get(/databases/$(database)/documents/applications/$(applicationId)).data.user_id) || isAdmin());
+        
+        allow create: if isSignedIn() && 
+                      isOwner(get(/databases/$(database)/documents/applications/$(applicationId)).data.user_id) &&
+                      get(/databases/$(database)/documents/applications/$(applicationId)).data.status == 'pending' &&
+                      isValidDocument(incoming());
+
+        allow delete: if isSignedIn() && 
+                      isOwner(get(/databases/$(database)/documents/applications/$(applicationId)).data.user_id) &&
+                      get(/databases/$(database)/documents/applications/$(applicationId)).data.status == 'pending';
+      }
+    }
+  }
+}

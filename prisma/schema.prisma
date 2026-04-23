@@ -1,0 +1,53 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model User {
+  id           String        @id @default(uuid())
+  email        String        @unique
+  password     String
+  fullName     String
+  role         String        @default("APPLICANT") // "APPLICANT" or "ADMIN"
+  applications Application[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+}
+
+model Application {
+  id               String   @id @default(uuid())
+  courseApplied    String
+  status           String   @default("PENDING") // "PENDING", "APPROVED", "REJECTED"
+  documents        String?  // JSON string
+  paymentStatus    String   @default("PENDING") // "PENDING", "COMPLETED"
+  paymentReference String?
+  amountPaid       Float?
+  user             User     @relation(fields: [userId], references: [id])
+  userId           String
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model SiteSettings {
+  id                String   @id @default("global")
+  schoolName        String   @default("Bauchi Institute for Arabic and Islamic Studies")
+  schoolShortName   String   @default("BIAIS")
+  schoolDescription String   @default("Dedicated to Islamic excellence and academic growth.")
+  contactEmail      String   @default("helpdesk@biais.edu.ng")
+  applicationFee    Float    @default(5000)
+  logoUrl           String?
+  updatedAt         DateTime @updatedAt
+}
+
+model Program {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}

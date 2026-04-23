@@ -1,0 +1,56 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "System users (Applicants and Admins)",
+      "type": "object",
+      "properties": {
+        "full_name": { "type": "string", "description": "Full name of the user" },
+        "email": { "type": "string", "format": "email", "description": "Email address" },
+        "role": { "type": "string", "enum": ["applicant", "admin"], "description": "User role" },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["full_name", "email", "role", "created_at"]
+    },
+    "Application": {
+      "title": "Application",
+      "description": "Admission applications submitted by users",
+      "type": "object",
+      "properties": {
+        "user_id": { "type": "string", "description": "ID of the applicant" },
+        "user_name": { "type": "string", "description": "Cache of user's name for display" },
+        "course_applied": { "type": "string", "description": "The course/program applied for" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"], "description": "Application status" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["user_id", "course_applied", "status", "created_at"]
+    },
+    "Document": {
+      "title": "Document",
+      "description": "Uploaded documents associated with an application",
+      "type": "object",
+      "properties": {
+        "application_id": { "type": "string", "description": "ID of the associated application" },
+        "file_url": { "type": "string", "description": "URL of the uploaded file" },
+        "file_type": { "type": "string", "description": "Type of document (e.g., WAEC, Passport)" },
+        "uploaded_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["application_id", "file_url", "file_type", "uploaded_at"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/applications/{applicationId}": {
+      "schema": "Application",
+      "description": "Global list of applications"
+    },
+    "/applications/{applicationId}/documents/{documentId}": {
+      "schema": "Document",
+      "description": "Documents for a specific application"
+    }
+  }
+}
