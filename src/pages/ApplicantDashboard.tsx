@@ -2,10 +2,11 @@ import React, { useEffect, useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../lib/AuthContext';
 import { useSettings } from '../lib/SettingsContext';
-import { FileText, Plus, Bell, CheckCircle, Clock, XCircle, ChevronRight, ArrowRight, Building2, Printer, X, Upload, Loader2, AlertCircle, CreditCard, Info } from 'lucide-react';
+import { FileText, Plus, Bell, CheckCircle, Clock, XCircle, ChevronRight, ArrowRight, Building2, Printer, X, Upload, Loader2, AlertCircle, CreditCard, Info, Award } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { format } from 'date-fns';
+import AdmissionLetter from '../components/AdmissionLetter';
 
 const REQUIRED_DOCS = [
   { id: 'waec', label: 'WAEC/NECO Result' },
@@ -28,6 +29,7 @@ export default function ApplicantDashboard() {
   const [applications, setApplications] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
   const [showSlip, setShowSlip] = useState(false);
+  const [showAdmissionLetter, setShowAdmissionLetter] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [uploading, setUploading] = useState<Record<string, boolean>>({});
   const printRef = useRef<HTMLDivElement>(null);
@@ -310,6 +312,27 @@ export default function ApplicantDashboard() {
                 <p className="text-[10px] text-slate-400">Attach additional required documents</p>
               </div>
             </button>
+
+            {activeApp?.status === 'APPROVED' && (
+              <button 
+                onClick={() => setShowAdmissionLetter(true)}
+                className="px-6 py-8 flex flex-col items-center justify-center gap-3 hover:bg-emerald-50 transition-all border-t sm:border-t-0 sm:border-l border-slate-100 group relative overflow-hidden"
+              >
+                <div className="absolute top-2 right-2">
+                  <span className="flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                  </span>
+                </div>
+                <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center group-hover:rotate-12 transition-transform">
+                  <Award className="w-6 h-6" />
+                </div>
+                <div className="text-center">
+                  <p className="text-sm font-bold text-slate-900">Admission Letter</p>
+                  <p className="text-[10px] text-emerald-600 font-medium whitespace-nowrap">Congratulations! View your letter</p>
+                </div>
+              </button>
+            )}
           </div>
         </div>
 
@@ -524,6 +547,18 @@ export default function ApplicantDashboard() {
               </div>
             </motion.div>
           </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showAdmissionLetter && activeApp && (
+          <AdmissionLetter 
+            isOpen={showAdmissionLetter}
+            onClose={() => setShowAdmissionLetter(false)}
+            user={user}
+            activeApp={activeApp}
+            settings={settings}
+          />
         )}
       </AnimatePresence>
     </div>

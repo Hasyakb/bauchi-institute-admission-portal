@@ -9,6 +9,9 @@ import { fileURLToPath } from "url";
 import multer from "multer";
 import fs from "fs";
 import admin from "firebase-admin";
+import nodemailer from "nodemailer";
+import crypto from "crypto";
+import { Client as PGClient } from "pg";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -48,14 +51,68 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  app.use(express.json());
+  app.use(express.json({ limit: '10mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '10mb' }));
   app.use(cookieParser());
+
+  // Development logger
+  app.use((req, res, next) => {
+    console.log(`[Server] ${req.method} ${req.url}`);
+    next();
+  });
   
   // Serve static uploads
   app.use("/uploads", express.static(uploadDir));
 
   // --- Site Settings Initialization ---
   let cachedSettings: any = null;
+
+  // --- Email Setup ---
+  const sendEmail = async (to: string, subject: string, text: string, html?: string) => {
+    console.log(`[Email] Sending to: ${to} | Subject: ${subject}`);
+    
+    // Always fetch latest settings for SMTP
+    const settings = await getSettings();
+    const smtpUser = (settings?.smtpUser || process.env.SMTP_USER || "").trim();
+    const smtpPass = settings?.smtpPass || process.env.SMTP_PASS;
+    const smtpHost = (settings?.smtpHost || process.env.SMTP_HOST || "smtp.ethereal.email").trim();
+    const smtpPort = settings?.smtpPort || parseInt(process.env.SMTP_PORT || "587");
+
+    if (smtpUser && smtpPass) {
+      try {
+        const port = Number(smtpPort) || 587;
+        const dynamicTransporter = nodemailer.createTransport({
+          host: smtpHost,
+          port: port,
+          secure: port === 465,
+          auth: {
+            user: smtpUser,
+            pass: smtpPass,
+          },
+          connectionTimeout: 10000,
+        });
+
+        await dynamicTransporter.sendMail({
+          from: `"${settings?.schoolName || 'BIAIS'}" <${settings?.contactEmail || 'noreply@biais.edu.ng'}>`,
+          to,
+          subject,
+          text,
+          html: html || text.replace(/\n/g, '<br>'),
+        });
+        console.log(`[Email] Real email sent successfully to ${to}`);
+      } catch (error) {
+        console.error(`[Email] Failed to send real email to ${to}:`, error);
+        // Fallback to log on failure if it's a dev env or just for visibility
+        const logEntry = `\n--- FAILED EMAIL ATTEMPT ${new Date().toISOString()} ---\nTo: ${to}\nSubject: ${subject}\nError: ${error}\n------------------------------\n`;
+        fs.appendFileSync(path.join(process.cwd(), "email-logs.txt"), logEntry);
+      }
+    } else {
+      console.log(`[Email] No SMTP credentials. Email to ${to} logged to console and file.`);
+      const logEntry = `\n--- ${new Date().toISOString()} ---\nTo: ${to}\nSubject: ${subject}\nBody: ${text}\n------------------------------\n`;
+      fs.appendFileSync(path.join(process.cwd(), "email-logs.txt"), logEntry);
+    }
+  };
+
   const getSettings = async () => {
     if (cachedSettings) return cachedSettings;
     try {
@@ -232,6 +289,140 @@ async function startServer() {
     }
   });
 
+  // Auth: Forgot Password - Request Token
+  app.post("/api/auth/forgot-password", async (req, res) => {
+    try {
+      const { email } = req.body;
+      const user = await prisma.user.findUnique({ where: { email } });
+      
+      if (!user) {
+        // We return success even if user not found for security (prevent email enumeration)
+        return res.json({ message: "If an account exists with that email, a reset link has been sent." });
+      }
+
+      const token = crypto.randomBytes(32).toString("hex");
+      const expires = new Date(Date.now() + 3600000); // 1 hour
+
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          resetPasswordToken: token,
+          resetPasswordExpires: expires
+        }
+      });
+
+      const settings = await getSettings();
+      const resetLink = `${req.get("origin")}/reset-password?token=${token}`;
+      
+      await sendEmail(
+        user.email,
+        "Password Reset Request",
+        `Hello ${user.fullName},\n\nYou requested a password reset. Please click the link below to reset your password:\n\n${resetLink}\n\nThis link will expire in 1 hour.\n\nIf you did not request this, please ignore this email.`,
+        `<h2>Password Reset Request</h2>
+         <p>Hello <strong>${user.fullName}</strong>,</p>
+         <p>You requested a password reset. Please click the button below to reset your password:</p>
+         <a href="${resetLink}" style="display:inline-block;padding:10px 20px;background:#10b981;color:white;text-decoration:none;border-radius:5px;">Reset Password</a>
+         <p>Alternatively, copy and paste this link: <br> ${resetLink}</p>
+         <p>This link will expire in 1 hour.</p>
+         <p>If you did not request this, please ignore this email.</p>`
+      );
+
+      res.json({ message: "If an account exists with that email, a reset link has been sent." });
+    } catch (error) {
+      console.error("Forgot password error:", error);
+      res.status(500).json({ error: "An error occurred" });
+    }
+  });
+
+  // Auth: Reset Password - Using Token
+  app.post("/api/auth/reset-password", async (req, res) => {
+    try {
+      const { token, password } = req.body;
+      
+      const user = await prisma.user.findFirst({
+        where: {
+          resetPasswordToken: token,
+          resetPasswordExpires: { gt: new Date() }
+        }
+      });
+
+      if (!user) {
+        return res.status(400).json({ error: "Password reset token is invalid or has expired." });
+      }
+
+      const hashedPassword = await bcrypt.hash(password, 10);
+      
+      await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          password: hashedPassword,
+          resetPasswordToken: null,
+          resetPasswordExpires: null
+        }
+      });
+
+      res.json({ message: "Password has been reset successfully." });
+    } catch (error) {
+      console.error("Reset password error:", error);
+      res.status(500).json({ error: "An error occurred" });
+    }
+  });
+
+  // Notifications: Get My Notifications
+  app.get("/api/notifications", async (req, res) => {
+    try {
+      const token = req.cookies.auth_token;
+      if (!token) return res.status(401).json({ error: "Unauthorized" });
+      const decoded: any = jwt.verify(token, JWT_SECRET);
+      
+      const notifications = await prisma.notification.findMany({
+        where: { userId: decoded.userId },
+        orderBy: { createdAt: 'desc' },
+        take: 50
+      });
+      
+      res.json(notifications);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch notifications" });
+    }
+  });
+
+  // Notifications: Mark as read
+  app.patch("/api/notifications/:id/read", async (req, res) => {
+    try {
+      const token = req.cookies.auth_token;
+      if (!token) return res.status(401).json({ error: "Unauthorized" });
+      const decoded: any = jwt.verify(token, JWT_SECRET);
+      
+      await prisma.notification.update({
+        where: { id: req.params.id, userId: decoded.userId },
+        data: { isRead: true }
+      });
+      
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update notification" });
+    }
+  });
+
+  // Notifications: Mark all as read
+  app.post("/api/notifications/read-all", async (req, res) => {
+    try {
+      const token = req.cookies.auth_token;
+      if (!token) return res.status(401).json({ error: "Unauthorized" });
+      const decoded: any = jwt.verify(token, JWT_SECRET);
+      
+      await prisma.notification.updateMany({
+        where: { userId: decoded.userId, isRead: false },
+        data: { isRead: true }
+      });
+      
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update notifications" });
+    }
+  });
+
   // Local File Upload API
   app.post("/api/upload", upload.single("file"), (req, res) => {
     try {
@@ -253,7 +444,7 @@ async function startServer() {
       if (!token) return res.status(401).json({ error: "Unauthorized" });
       const decoded: any = jwt.verify(token, JWT_SECRET);
       
-      const { courseApplied, documents, paymentReference, amountPaid } = req.body;
+      const { courseApplied, documents, olevelResults, paymentReference, amountPaid } = req.body;
 
       // Check for existing active application (not rejected)
       const existingApp = await prisma.application.findFirst({
@@ -274,6 +465,7 @@ async function startServer() {
         data: {
           courseApplied,
           documents: JSON.stringify(documents),
+          olevelResults: olevelResults ? JSON.stringify(olevelResults) : null,
           userId: decoded.userId,
           paymentStatus: 'COMPLETED', // In a real app, verify reference with a gateway first
           paymentReference,
@@ -281,9 +473,12 @@ async function startServer() {
         }
       });
       res.json(application);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Submit app error:", error);
-      res.status(500).json({ error: "Failed to submit application" });
+      res.status(500).json({ 
+        error: "Failed to submit application",
+        message: error?.message || "Internal server error"
+      });
     }
   });
 
@@ -301,7 +496,8 @@ async function startServer() {
       
       const parsedApps = apps.map(app => ({
         ...app,
-        documents: app.documents ? JSON.parse(app.documents) : null
+        documents: app.documents ? JSON.parse(app.documents) : null,
+        olevelResults: app.olevelResults ? JSON.parse(app.olevelResults) : null
       }));
       
       res.json(parsedApps);
@@ -350,7 +546,8 @@ async function startServer() {
 
       const parsedApps = apps.map(app => ({
         ...app,
-        documents: app.documents ? JSON.parse(app.documents) : null
+        documents: app.documents ? JSON.parse(app.documents) : null,
+        olevelResults: app.olevelResults ? JSON.parse(app.olevelResults) : null
       }));
 
       res.json({
@@ -396,7 +593,7 @@ async function startServer() {
       const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
       if (user?.role !== "ADMIN") return res.status(403).json({ error: "Forbidden" });
 
-      const { schoolName, schoolShortName, schoolDescription, contactEmail, logoUrl, applicationFee } = req.body;
+      const { schoolName, schoolShortName, schoolDescription, contactEmail, logoUrl, applicationFee, smtpHost, smtpPort, smtpUser, smtpPass, databaseUrl, admissionLetterTemplate } = req.body;
       const updated = await prisma.siteSettings.update({
         where: { id: "global" },
         data: { 
@@ -405,7 +602,13 @@ async function startServer() {
           schoolDescription, 
           contactEmail, 
           logoUrl,
-          applicationFee: applicationFee ? parseFloat(applicationFee) : undefined
+          applicationFee: applicationFee ? parseFloat(applicationFee) : undefined,
+          smtpHost,
+          smtpPort: smtpPort ? parseInt(smtpPort) : undefined,
+          smtpUser,
+          smtpPass,
+          databaseUrl,
+          admissionLetterTemplate
         }
       });
       cachedSettings = updated;
@@ -509,6 +712,62 @@ async function startServer() {
   });
 
   // --- Admin User Management APIs ---
+  
+  // Admin: Test Email Connectivity
+  app.post("/api/admin/test-email", async (req, res) => {
+    try {
+      const token = req.cookies.auth_token;
+      if (!token) return res.status(401).json({ error: "Unauthorized" });
+      const decoded: any = jwt.verify(token, JWT_SECRET);
+      
+      const userRes = await prisma.user.findUnique({ where: { id: decoded.userId } });
+      if (userRes?.role !== "ADMIN") return res.status(403).json({ error: "Forbidden" });
+
+      const { smtpHost, smtpPort, smtpUser, smtpPass } = req.body;
+
+      if (!smtpHost || !smtpUser || !smtpPass) {
+        return res.status(400).json({ error: "Missing configuration", message: "Host, User, and Password are required." });
+      }
+
+      // Warn if password looks like a masked value from a screenshot
+      if (smtpPass.includes('*')) {
+         return res.status(400).json({ error: "Invalid Password", message: "It looks like you entered a masked password (with asterisks). Please copy the actual password from your SMTP provider." });
+      }
+
+      const port = parseInt(smtpPort) || 587;
+      // Create a temporary transporter for testing
+      const transporter = nodemailer.createTransport({
+        host: smtpHost.trim(),
+        port: port,
+        secure: port === 465,
+        auth: {
+          user: smtpUser.trim(),
+          pass: smtpPass,
+        },
+        connectionTimeout: 10000, // 10 seconds timeout
+      });
+
+      // Verify connection
+      await transporter.verify();
+
+      // Send a test message
+      const settings = await prisma.siteSettings.findFirst();
+      await transporter.sendMail({
+        from: `"${settings?.schoolName || 'BIAIS'}" <${settings?.contactEmail || smtpUser}>`,
+        to: userRes.email,
+        subject: "SMTP Connection Test",
+        text: `Success! Your SMTP settings at ${smtpHost} are working correctly.`,
+      });
+
+      res.json({ message: `Test email sent successfully to ${userRes.email}!` });
+    } catch (error: any) {
+      console.error("Test email failed:", error);
+      res.status(500).json({ 
+        error: "Connection failed", 
+        message: error.message 
+      });
+    }
+  });
 
   // Admin: List all users
   app.get("/api/admin/users", async (req, res) => {
@@ -526,6 +785,95 @@ async function startServer() {
       res.json(users);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch users" });
+    }
+  });
+
+  // Admin: Test Database Connectivity
+  app.post("/api/admin/test-db", async (req, res) => {
+    try {
+      const token = req.cookies.auth_token;
+      if (!token) return res.status(401).json({ error: "Unauthorized" });
+      const decoded: any = jwt.verify(token, JWT_SECRET);
+      const userRes = await prisma.user.findUnique({ where: { id: decoded.userId } });
+      if (userRes?.role !== "ADMIN") return res.status(403).json({ error: "Forbidden" });
+
+      const { databaseUrl } = req.body;
+      if (!databaseUrl) {
+        return res.status(400).json({ error: "Missing configuration", message: "Database URL is required." });
+      }
+
+      if (databaseUrl.startsWith('postgresql://') || databaseUrl.startsWith('postgres://')) {
+        const client = new PGClient({
+          connectionString: databaseUrl,
+          connectionTimeoutMillis: 10000,
+        });
+
+        await client.connect();
+        const result = await client.query('SELECT NOW()');
+        await client.end();
+        
+        res.json({ message: "Successfully connected to PostgreSQL database!", serverTime: result.rows[0].now });
+      } else {
+        res.status(400).json({ error: "Unsupported Database", message: "Currently only PostgreSQL URLs are supported for connection testing." });
+      }
+    } catch (error: any) {
+      console.error("Test DB failed:", error);
+      res.status(500).json({ 
+        error: "Connection failed", 
+        message: error.message 
+      });
+    }
+  });
+
+  // Admin: Comprehensive Health Check
+  app.get("/api/admin/health-check", async (req, res) => {
+    try {
+      const token = req.cookies.auth_token;
+      if (!token) return res.status(401).json({ error: "Unauthorized" });
+      const userRes = await prisma.user.findUnique({ where: { id: (jwt.verify(token, JWT_SECRET) as any).userId } });
+      if (userRes?.role !== "ADMIN") return res.status(403).json({ error: "Forbidden" });
+
+      const checks: any = {};
+
+      // 1. Database (Current Prisma)
+      try {
+        await prisma.$queryRaw`SELECT 1`;
+        checks.database = { status: "OK", type: "Prisma Connect" };
+      } catch (e: any) {
+        checks.database = { status: "FAIL", message: e.message };
+      }
+
+      // 2. Email (Current Setup)
+      try {
+        const settings = await getSettings();
+        if (settings?.smtpUser && settings?.smtpPass) {
+          checks.email = { status: "CONFIGURED", host: settings.smtpHost };
+        } else {
+          checks.email = { status: "LOG_ONLY", message: "Using local file logging" };
+        }
+      } catch (e) {
+        checks.email = { status: "ERROR" };
+      }
+
+      // 3. Firebase
+      try {
+        const apps = admin.apps;
+        checks.firebase = { status: apps.length > 0 ? "INITIALIZED" : "NOT_FOUND" };
+      } catch (e) {
+        checks.firebase = { status: "ERROR" };
+      }
+
+      // 4. Storage
+      try {
+        fs.accessSync(uploadDir, fs.constants.W_OK);
+        checks.storage = { status: "WRITABLE" };
+      } catch (e) {
+        checks.storage = { status: "READ_ONLY" };
+      }
+
+      res.json(checks);
+    } catch (error: any) {
+      res.status(500).json({ error: "Health check failed" });
     }
   });
 
@@ -643,6 +991,50 @@ async function startServer() {
         where: { id: req.params.id },
         data
       });
+
+      // Handle notifications and emails for status changes
+      if (isAdmin && status === "APPROVED") {
+        const settings = await getSettings();
+        const appUser = await prisma.user.findUnique({ where: { id: application.userId } });
+        
+        if (appUser) {
+          // Create in-app notification
+          await prisma.notification.create({
+            data: {
+              userId: appUser.id,
+              title: "Admission Approved!",
+              message: `Congratulations! Your application for ${application.courseApplied} has been approved. You can now download your admission letter.`,
+              type: "SUCCESS"
+            }
+          });
+
+          // Send email
+          await sendEmail(
+            appUser.email,
+            "Admission Offer - BIAIS",
+            `Congratulations ${appUser.fullName}!\n\nYour application for ${application.courseApplied} has been approved by the admissions committee.\n\nPlease log in to your dashboard at ${req.get("origin")} to download your formal admission acceptance letter and proceed with registration.\n\nRegistry Office,\n${settings.schoolName}`,
+            `<h2>Admission Offer!</h2>
+             <p>Congratulations <strong>${appUser.fullName}</strong>,</p>
+             <p>Your application for <strong>${application.courseApplied}</strong> has been approved by the admissions committee.</p>
+             <p>Please log in to your dashboard to download your formal admission acceptance letter and proceed with registration.</p>
+             <a href="${req.get("origin")}/dashboard" style="display:inline-block;padding:10px 20px;background:#10b981;color:white;text-decoration:none;border-radius:5px;">Go to Dashboard</a>
+             <p>Best regards,<br>Registry Office,<br>${settings.schoolName}</p>`
+          );
+        }
+      } else if (isAdmin && status === "REJECTED") {
+        const appUser = await prisma.user.findUnique({ where: { id: application.userId } });
+        if (appUser) {
+          await prisma.notification.create({
+            data: {
+              userId: appUser.id,
+              title: "Application Status Update",
+              message: `We regret to inform you that your application for ${application.courseApplied} was not successful at this time.`,
+              type: "WARNING"
+            }
+          });
+        }
+      }
+
       res.json(updated);
     } catch (error) {
       res.status(500).json({ error: "Update failed" });

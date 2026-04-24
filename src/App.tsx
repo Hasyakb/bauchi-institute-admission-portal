@@ -6,11 +6,14 @@ import { Layout } from './components/Layout';
 import Home from './pages/Home';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import ForgotPassword from './pages/ForgotPassword';
+import ResetPassword from './pages/ResetPassword';
 import ApplicantDashboard from './pages/ApplicantDashboard';
 import AdminDashboard from './pages/AdminDashboard';
 import AdminSettings from './pages/AdminSettings';
 import AdminPrograms from './pages/AdminPrograms';
 import AdminUsers from './pages/AdminUsers';
+import AdminHealth from './pages/AdminHealth';
 import ApplicationForm from './pages/ApplicationForm';
 
 // Protected Route component
@@ -42,6 +45,8 @@ export default function App() {
               <Route path="/" element={<Home />} />
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
+              <Route path="/forgot-password" element={<ForgotPassword />} />
+              <Route path="/reset-password" element={<ResetPassword />} />
               
               {/* Applicant Routes */}
               <Route path="/dashboard" element={
@@ -79,6 +84,11 @@ export default function App() {
               <Route path="/admin/users" element={
                 <ProtectedRoute requireAdmin>
                   <AdminUsers />
+                </ProtectedRoute>
+              } />
+              <Route path="/admin/health" element={
+                <ProtectedRoute requireAdmin>
+                  <AdminHealth />
                 </ProtectedRoute>
               } />
 

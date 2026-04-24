@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../lib/AuthContext';
 import { useSettings } from '../lib/SettingsContext';
-import { Book, Send, Loader2, Upload, AlertCircle, CheckCircle2, FileUp, CreditCard, Info, Wallet, Eye, FileIcon, X } from 'lucide-react';
+import { Book, Send, Loader2, Upload, AlertCircle, CheckCircle2, FileUp, CreditCard, Info, Wallet, Eye, FileIcon, X, Plus } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { usePaystackPayment } from 'react-paystack';
 
@@ -13,17 +13,33 @@ const REQUIRED_DOCS = [
   { id: 'birth', label: 'Birth Certificate' }
 ];
 
+const OLEVEL_SUBJECTS = [
+  'English Language',
+  'Mathematics',
+  'Islamic Studies',
+  'Arabic Language',
+  'Economics',
+  'Government',
+  'Literature in English',
+  'Biology',
+  'Chemistry',
+  'Physics',
+  'Agricultural Science',
+  'Geography',
+  'Commerce',
+  'Accounting',
+  'Civic Education',
+  'History'
+];
+
+const OLEVEL_GRADES = ['A1', 'B2', 'B3', 'C4', 'C5', 'C6', 'D7', 'E8', 'F9'];
+
 function DocumentCard({ 
   doc, 
   file, 
   status, 
   onFileChange 
-}: { 
-  doc: typeof REQUIRED_DOCS[0], 
-  file: File | undefined | null, 
-  status: string | undefined, 
-  onFileChange: (id: string, file: File | null) => void 
-}) {
+}: any) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
   useEffect(() => {
@@ -132,12 +148,20 @@ export default function ApplicationForm() {
   const [paymentRef, setPaymentRef] = useState('');
   const [files, setFiles] = useState<Record<string, File>>({});
   const [uploadingStatus, setUploadingStatus] = useState<Record<string, 'idle' | 'uploading' | 'success' | 'error'>>({});
+  const [olevelResults, setOlevelResults] = useState<{ subject: string, grade: string }[]>([
+    { subject: '', grade: '' },
+    { subject: '', grade: '' },
+    { subject: '', grade: '' },
+    { subject: '', grade: '' },
+    { subject: '', grade: '' }
+  ]);
 
   const paystackConfig = {
     reference: (new Date()).getTime().toString(),
     email: user?.email || '',
     amount: (settings?.applicationFee || 5000) * 100, // Amount is in kobo
-    publicKey: (import.meta as any).env.VITE_PAYSTACK_PUBLIC_KEY || '',
+    // @ts-ignore
+    publicKey: import.meta.env.VITE_PAYSTACK_PUBLIC_KEY || '',
   };
 
   const initializePayment = usePaystackPayment(paystackConfig);
@@ -181,12 +205,33 @@ export default function ApplicationForm() {
     }
   };
 
+  const handleOlevelChange = (index: number, field: 'subject' | 'grade', value: string) => {
+    const newResults = [...olevelResults];
+    newResults[index][field] = value;
+    setOlevelResults(newResults);
+  };
+
+  const addOlevelRow = () => {
+    setOlevelResults(prev => [...prev, { subject: '', grade: '' }]);
+  };
+
+  const removeOlevelRow = (index: number) => {
+    setOlevelResults(prev => prev.filter((_, i) => i !== index));
+  };
+
   const nextStep = () => {
     if (currentStep === 1 && !course) {
       setError('Please select a course to proceed.');
       return;
     }
-    if (currentStep === 2 && Object.keys(files).length < REQUIRED_DOCS.length) {
+    if (currentStep === 2) {
+      const validResults = olevelResults.filter(r => r.subject && r.grade);
+      if (validResults.length < 5) {
+        setError('Please provide at least 5 O\'Level subjects and grades.');
+        return;
+      }
+    }
+    if (currentStep === 3 && Object.keys(files).length < REQUIRED_DOCS.length) {
       setError('Please provide all required documents.');
       return;
     }
@@ -238,9 +283,23 @@ export default function ApplicationForm() {
           body: formDataUpload
         });
 
-        if (!uploadRes.ok) throw new Error(`Failed to upload ${doc.label}`);
+        if (!uploadRes.ok) {
+          let errorMsg = `Failed to upload ${doc.label}`;
+          try {
+            const errorData = await uploadRes.json();
+            errorMsg = errorData.error || errorData.message || errorMsg;
+          } catch (e) {
+            errorMsg += ` (Status: ${uploadRes.status})`;
+          }
+          throw new Error(errorMsg);
+        }
         
-        const uploadData = await uploadRes.json();
+        let uploadData;
+        try {
+          uploadData = await uploadRes.json();
+        } catch (e) {
+          throw new Error(`Invalid response from upload server (Status: ${uploadRes.status})`);
+        }
         uploadedDocUrls[doc.id] = uploadData.url;
         setUploadingStatus(prev => ({ ...prev, [doc.id]: 'success' }));
       }
@@ -252,14 +311,21 @@ export default function ApplicationForm() {
         body: JSON.stringify({
           courseApplied: course,
           documents: uploadedDocUrls,
+          olevelResults: olevelResults.filter(r => r.subject && r.grade),
           paymentReference: ref,
           amountPaid: settings?.applicationFee
         })
       });
 
       if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.message || data.error || 'Failed to submit application');
+        let errorMsg = 'Failed to submit application';
+        try {
+          const data = await res.json();
+          errorMsg = data.message || data.error || errorMsg;
+        } catch (e) {
+          errorMsg += ` (Status: ${res.status})`;
+        }
+        throw new Error(errorMsg);
       }
 
       navigate('/dashboard');
@@ -304,7 +370,7 @@ export default function ApplicationForm() {
           <div className="md:col-span-2 space-y-6">
             {/* Step Indicator */}
             <div className="flex items-center justify-between px-4 mb-2">
-              {[1, 2, 3].map((s) => (
+              {[1, 2, 3, 4].map((s) => (
                 <div key={s} className="flex flex-col items-center gap-2">
                   <div className={cn(
                     "w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold transition-all",
@@ -317,7 +383,7 @@ export default function ApplicationForm() {
                     "text-[10px] uppercase font-bold tracking-wider",
                     currentStep === s ? "text-emerald-700" : "text-slate-400"
                   )}>
-                    {s === 1 ? 'Program' : s === 2 ? 'Documents' : 'Payment'}
+                    {s === 1 ? 'Program' : s === 2 ? 'O\'Level' : s === 3 ? 'Documents' : 'Payment'}
                   </span>
                 </div>
               ))}
@@ -351,6 +417,70 @@ export default function ApplicationForm() {
                 )}
 
                 {currentStep === 2 && (
+                  <section className="space-y-4">
+                    <div className="flex items-center gap-2 mb-4 text-emerald-600">
+                      <Book className="w-5 h-5" />
+                      <h2 className="font-bold uppercase tracking-widest text-xs">Step 2: O'Level Results</h2>
+                    </div>
+                    <div className="space-y-3">
+                      <div className="grid grid-cols-12 gap-4 px-2">
+                        <div className="col-span-1"></div>
+                        <div className="col-span-7 font-bold text-xs text-slate-500 uppercase tracking-wider">Subject</div>
+                        <div className="col-span-3 font-bold text-xs text-slate-500 uppercase tracking-wider">Grade</div>
+                        <div className="col-span-1"></div>
+                      </div>
+                      {olevelResults.map((result, idx) => (
+                        <div key={idx} className="grid grid-cols-12 gap-3 items-center">
+                          <div className="col-span-1 text-slate-400 font-bold text-xs text-center">{idx + 1}</div>
+                          <div className="col-span-7">
+                            <select
+                              value={result.subject}
+                              onChange={(e) => handleOlevelChange(idx, 'subject', e.target.value)}
+                              className="input-field bg-slate-50 py-2"
+                            >
+                              <option value="">Select Subject</option>
+                              {OLEVEL_SUBJECTS.map(s => (
+                                <option key={s} value={s}>{s}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="col-span-3">
+                            <select
+                              value={result.grade}
+                              onChange={(e) => handleOlevelChange(idx, 'grade', e.target.value)}
+                              className="input-field bg-slate-50 py-2"
+                            >
+                              <option value="">Grade</option>
+                              {OLEVEL_GRADES.map(g => (
+                                <option key={g} value={g}>{g}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="col-span-1 flex justify-center">
+                            {olevelResults.length > 5 && (
+                              <button 
+                                type="button" 
+                                onClick={() => removeOlevelRow(idx)}
+                                className="text-red-400 hover:text-red-600 transition-colors"
+                              >
+                                <X className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <button 
+                      type="button" 
+                      onClick={addOlevelRow}
+                      className="mt-4 text-emerald-600 hover:text-emerald-700 text-xs font-bold flex items-center gap-1 transition-all"
+                    >
+                      <Plus className="w-4 h-4" /> Add More Subjects
+                    </button>
+                  </section>
+                )}
+
+                {currentStep === 3 && (
                   <section>
                     <div className="flex items-center gap-2 mb-4 text-emerald-600">
                       <Upload className="w-5 h-5" />
@@ -370,11 +500,11 @@ export default function ApplicationForm() {
                   </section>
                 )}
 
-                {currentStep === 3 && (
+                {currentStep === 4 && (
                   <section className="space-y-6">
                     <div className="flex items-center gap-2 mb-4 text-emerald-600">
                       <CreditCard className="w-5 h-5" />
-                      <h2 className="font-bold uppercase tracking-widest text-xs tracking-tighter">Step 3: Application Fee</h2>
+                      <h2 className="font-bold uppercase tracking-widest text-xs tracking-tighter">Step 4: Application Fee</h2>
                     </div>
                     
                     <div className="p-6 bg-slate-50 border border-slate-200 rounded-2xl relative overflow-hidden">
@@ -431,7 +561,7 @@ export default function ApplicationForm() {
                   </button>
                 ) : <div />}
                 
-                {currentStep < 3 ? (
+                {currentStep < 4 ? (
                   <button 
                     type="button" 
                     onClick={nextStep}

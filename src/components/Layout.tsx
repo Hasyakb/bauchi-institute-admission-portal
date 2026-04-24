@@ -2,9 +2,10 @@ import React from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../lib/AuthContext';
 import { useSettings } from '../lib/SettingsContext';
-import { LogOut, User, LayoutDashboard, FileText, Settings, ShieldCheck, Menu, X, BookOpen, Users } from 'lucide-react';
+import { LogOut, User, LayoutDashboard, FileText, Settings, ShieldCheck, Menu, X, BookOpen, Users, Bell } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
+import NotificationBell from './NotificationBell';
 
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user, isAdmin, refreshUser } = useAuth();
@@ -118,7 +119,8 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
                 / {navItems.find(i => i.path === location.pathname)?.name || 'Dashboard'}
               </span>
             </div>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
+              <NotificationBell />
               <div className="text-right hidden sm:block">
                 <p className="text-sm font-bold">{user.fullName}</p>
                 <p className="text-[10px] text-slate-500 uppercase tracking-widest leading-none">

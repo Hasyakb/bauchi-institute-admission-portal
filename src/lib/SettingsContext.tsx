@@ -6,7 +6,13 @@ interface SiteSettings {
   schoolDescription: string;
   contactEmail: string;
   logoUrl: string | null;
+  databaseUrl: string | null;
+  admissionLetterTemplate: string | null;
   applicationFee: number;
+  smtpHost: string | null;
+  smtpPort: number | null;
+  smtpUser: string | null;
+  smtpPass: string | null;
 }
 
 interface SettingsContextType {

@@ -8,14 +8,28 @@ datasource db {
 }
 
 model User {
-  id           String        @id @default(uuid())
-  email        String        @unique
-  password     String
-  fullName     String
-  role         String        @default("APPLICANT") // "APPLICANT" or "ADMIN"
-  applications Application[]
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  id                   String        @id @default(uuid())
+  email                String        @unique
+  password             String
+  fullName             String
+  role                 String        @default("APPLICANT") // "APPLICANT" or "ADMIN"
+  resetPasswordToken   String?
+  resetPasswordExpires DateTime?
+  applications         Application[]
+  notifications        Notification[]
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  title     String
+  message   String
+  isRead    Boolean  @default(false)
+  type      String   @default("INFO") // "INFO", "SUCCESS", "WARNING"
+  createdAt DateTime @default(now())
 }
 
 model Application {
@@ -23,6 +37,7 @@ model Application {
   courseApplied    String
   status           String   @default("PENDING") // "PENDING", "APPROVED", "REJECTED"
   documents        String?  // JSON string
+  olevelResults    String?  // JSON string of subjects and grades
   paymentStatus    String   @default("PENDING") // "PENDING", "COMPLETED"
   paymentReference String?
   amountPaid       Float?
@@ -40,6 +55,12 @@ model SiteSettings {
   contactEmail      String   @default("helpdesk@biais.edu.ng")
   applicationFee    Float    @default(5000)
   logoUrl           String?
+  databaseUrl       String?
+  admissionLetterTemplate String? @default("I am pleased to inform you that following your performance in the entrance examination and subsequent screening, the Admissions Committee has approved your Provisional Admission into our institution.")
+  smtpHost          String?
+  smtpPort          Int?     @default(587)
+  smtpUser          String?
+  smtpPass          String?
   updatedAt         DateTime @updatedAt
 }
 
