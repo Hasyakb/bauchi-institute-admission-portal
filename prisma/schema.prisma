@@ -36,7 +36,7 @@ model Application {
   id               String   @id @default(uuid())
   courseApplied    String
   status           String   @default("PENDING") // "PENDING", "APPROVED", "REJECTED"
-  documents        String?  // JSON string
+  documents        String?  // JSON string or base64 data
   olevelResults    String?  // JSON string of subjects and grades
   paymentStatus    String   @default("PENDING") // "PENDING", "COMPLETED"
   paymentReference String?
@@ -71,4 +71,15 @@ model Program {
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+model UploadedFile {
+  id        String   @id @default(uuid())
+  filename  String
+  originalName String
+  mimeType  String
+  size      Int
+  data      String   @db.Text  // base64 encoded data
+  userId    String
+  createdAt DateTime @default(now())
 }
