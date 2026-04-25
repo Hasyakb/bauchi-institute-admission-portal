@@ -1,20 +1,30 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Bauchi Institute Admission Portal
 
-# Run and deploy your AI Studio app
+A comprehensive admission management portal for Bauchi Institute for Arabic and Islamic Studies.
 
-This contains everything you need to run your app locally.
+## Features
 
-View your app in AI Studio: https://ai.studio/apps/ae481a0b-a1cf-49fb-8879-58aa00e109ee
+- User authentication (Applicant/Admin roles)
+- Online application submission
+- Admin dashboard for managing applications
+- Program management
+- User management
+- Site settings configuration
+- Email notifications
+- Payment integration with Paystack
+- Responsive design
 
-## Run Locally
+## Tech Stack
 
-**Prerequisites:**  Node.js
+- **Frontend**: React, TypeScript, Tailwind CSS, Vite
+- **Backend**: Express.js, Prisma ORM
+- **Database**: SQLite
+- **Authentication**: Custom JWT-based
+- **Payment**: Paystack API
 
+## Installation
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+1. Clone the repository:
+```bash
+git clone https://github.com/YOUR_USERNAME/bauchi-institute-admission-portal.git
+cd bauchi-institute-admission-portal

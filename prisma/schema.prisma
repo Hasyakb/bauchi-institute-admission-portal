@@ -3,8 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = "file:./dev.db"
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 model User {
@@ -12,7 +12,7 @@ model User {
   email                String        @unique
   password             String
   fullName             String
-  role                 String        @default("APPLICANT") // "APPLICANT" or "ADMIN"
+  role                 String        @default("APPLICANT")
   resetPasswordToken   String?
   resetPasswordExpires DateTime?
   applications         Application[]
@@ -28,17 +28,17 @@ model Notification {
   title     String
   message   String
   isRead    Boolean  @default(false)
-  type      String   @default("INFO") // "INFO", "SUCCESS", "WARNING"
+  type      String   @default("INFO")
   createdAt DateTime @default(now())
 }
 
 model Application {
   id               String   @id @default(uuid())
   courseApplied    String
-  status           String   @default("PENDING") // "PENDING", "APPROVED", "REJECTED"
-  documents        String?  // JSON string
-  olevelResults    String?  // JSON string of subjects and grades
-  paymentStatus    String   @default("PENDING") // "PENDING", "COMPLETED"
+  status           String   @default("PENDING")
+  documents        String?
+  olevelResults    String?
+  paymentStatus    String   @default("PENDING")
   paymentReference String?
   amountPaid       Float?
   user             User     @relation(fields: [userId], references: [id])
@@ -71,4 +71,15 @@ model Program {
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+model UploadedFile {
+  id           String   @id @default(uuid())
+  filename     String
+  originalName String
+  mimeType     String
+  size         Int
+  data         String   @db.Text
+  userId       String
+  createdAt    DateTime @default(now())
 }

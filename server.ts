@@ -49,7 +49,7 @@ const upload = multer({ storage });
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
 
   app.use(express.json({ limit: '10mb' }));
   app.use(express.urlencoded({ extended: true, limit: '10mb' }));
@@ -1050,8 +1050,9 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), "dist");
+    const distPath = path.join(__dirname, 'dist');
     app.use(express.static(distPath));
+    app.use('/assets', express.static(path.join(distPath, 'assets')));
     app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
