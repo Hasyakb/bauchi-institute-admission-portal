@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: bauchi-institute-portal
+    runtime: node
+    buildCommand: npm install && npx prisma generate && npm run build
+    startCommand: npm start
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:postgresql://neondb_owner:npg_GLvDy4jrXQe3@ep-lucky-term-ab6wuzyj-pooler.eu-west-2.aws.neon.tech/biais_db?sslmode=require&channel_binding=require
+          name: bauchi-db
+          property: connectionString
+      - key: NODE_ENV
+        value: production
